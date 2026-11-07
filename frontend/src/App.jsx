@@ -12,9 +12,11 @@ export default function App() {
   const [success, setSuccess] = useState('')
   const [copied, setCopied] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  // Read session from URL on load
+  // Read session from URL or localStorage on load
   const urlParams = new URLSearchParams(window.location.search)
-  const initialSession = urlParams.get('session')
+  const urlSession = urlParams.get('session')
+  const storedSession = localStorage.getItem('active_session_id')
+  const initialSession = urlSession || storedSession
   const [view, setView] = useState(initialSession ? 'detail' : 'list')
   const [activeSessionId, setActiveSessionId] = useState(initialSession)
   const [deleteConfirm, setDeleteConfirm] = useState(null) // session id to delete
@@ -109,6 +111,8 @@ export default function App() {
       }
       setActiveSessionId(data.session_id)
       setView('detail')
+      // Save session for refresh persistence
+      localStorage.setItem('active_session_id', data.session_id)
       // Update URL so refresh keeps the session
       const url = new URL(window.location.href)
       url.searchParams.set('session', data.session_id)
@@ -135,13 +139,13 @@ export default function App() {
       ])
       if (detailRes.ok) {
         setSessionDetail(await detailRes.json())
-      } else {
-        // Session not found (deleted) - go back to list
-        setActiveSessionId(null)
+      } else if (detailRes.status === 404) {
+        setError('Session not found. It may have been deleted or expired. Start a new session.')
         setView('list')
-        const url = new URL(window.location.href)
-        url.searchParams.delete('session')
-        window.history.replaceState({}, '', url.toString())
+        setActiveSessionId(null)
+        localStorage.removeItem('active_session_id')
+      } else {
+        setError('Failed to load session details')
       }
       if (visitsRes.ok) {
         const vd = await visitsRes.json()
@@ -178,6 +182,7 @@ export default function App() {
           setVisits([])
           setSharers([])
           setView('list')
+          localStorage.removeItem('active_session_id')
           // Clear session from URL
           const url = new URL(window.location.href)
           url.searchParams.delete('session')
@@ -216,6 +221,7 @@ export default function App() {
     setEmails([])
     setView('new')
     setSidebarOpen(false)
+    localStorage.removeItem('active_session_id')
     // Clear session from URL
     const url = new URL(window.location.href)
     url.searchParams.delete('session')

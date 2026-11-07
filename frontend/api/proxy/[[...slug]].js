@@ -22,8 +22,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ detail: 'Invalid request URL' });
   }
 
-  // Strip /proxy prefix to get the actual API path for Render
-  const apiPath = path.replace('/proxy', '');
+  // Normalize path: remove /proxy prefix if Vercel includes it
+  const apiPath = path.startsWith('/api/proxy/')
+    ? '/api' + path.substring('/api/proxy'.length)
+    : path;
 
   // Only allow POST to /api/session/start and DELETE to /api/session/{id}
   if (method === 'POST' && apiPath === '/api/session/start') {
@@ -39,7 +41,19 @@ export default async function handler(req, res) {
 
 async function proxyRequest(req, res, targetUrl, adminKey) {
   try {
-    const body = req.body || {};
+    // Read request body robustly for Vercel serverless functions
+    let body = {};
+    if (req.method !== 'GET') {
+      const rawBody = await req.text();
+      if (rawBody) {
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          body = {};
+        }
+      }
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       'X-Admin-Key': adminKey,

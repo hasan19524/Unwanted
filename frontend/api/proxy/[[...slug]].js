@@ -3,10 +3,6 @@
 
 const RENDER_BACKEND = process.env.RENDER_BACKEND_URL || 'https://unwanted-g96n.onrender.com';
 
-const ALLOWED_PATHS = [
-  '/api/session/start',
-];
-
 export default async function handler(req, res) {
   // Validate server-side secret exists
   const adminKey = process.env.ADMIN_KEY;
@@ -26,14 +22,16 @@ export default async function handler(req, res) {
     return res.status(400).json({ detail: 'Invalid request URL' });
   }
 
+  // Strip /proxy prefix to get the actual API path for Render
+  const apiPath = path.replace('/proxy', '');
+
   // Only allow POST to /api/session/start and DELETE to /api/session/{id}
-  if (method === 'POST' && path === '/api/session/start') {
-    // Forward to Render backend
-    return await proxyRequest(req, res, `${RENDER_BACKEND}/api/session/start`, adminKey);
+  if (method === 'POST' && apiPath === '/api/session/start') {
+    return await proxyRequest(req, res, `${RENDER_BACKEND}${apiPath}`, adminKey);
   }
 
-  if (method === 'DELETE' && path.startsWith('/api/session/')) {
-    return await proxyRequest(req, res, `${RENDER_BACKEND}${path}`, adminKey);
+  if (method === 'DELETE' && apiPath.startsWith('/api/session/')) {
+    return await proxyRequest(req, res, `${RENDER_BACKEND}${apiPath}`, adminKey);
   }
 
   return res.status(404).json({ detail: 'Not found' });

@@ -4,10 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "routes": [
-    { "src": "/api/proxy/(.*)", "dest": "/api/proxy/[[...slug]].js" },
-    { "src": "/api/session/(.*)", "dest": "/api/session/[...slug].js" },
-    { "src": "/api/sessions", "dest": "/api/sessions.js" },
-    { "src": "/api/upload-emails", "dest": "/api/upload-emails.js" },
+    { "src": "/api/(.*)", "dest": "/api/[[...slug]].js" },
     { "src": "/(.*)", "dest": "/dist/index.html" }
   ]
 }

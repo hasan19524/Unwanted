@@ -1,16 +1,19 @@
-"""FastAPI backend for the class link tracker."""
+"""FastAPI backend for the class link tracker - secured and cleaned."""
 
 import os
-import json
+import re
 import uuid
+import time
 from datetime import datetime, timezone
+from collections import defaultdict
+from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 load_dotenv()
 
@@ -20,17 +23,68 @@ from tracker import parse_user_agent, is_crawler, detect_referrer_app, geo_looku
 
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 ADMIN_KEY = os.getenv("ADMIN_KEY", "")
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+    if o.strip()
+]
 
 app = FastAPI(title="Class Link Tracker", version="2.0.0")
+
+# Rate limiting: simple in-memory store
+rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_REQUESTS = 20
+RATE_LIMIT_WINDOW = 60  # seconds
+
+# Session ID validation pattern (alphanumeric, hyphens, underscores only)
+SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+TOKEN_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+
+# ---------- Security Middleware ----------
+
+
+@app.middleware("http")
+async def security_and_rate_limit(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limiting
+    now = time.time()
+    rate_limit_store[client_ip] = [
+        t for t in rate_limit_store[client_ip] if now - t < RATE_LIMIT_WINDOW
+    ]
+    if len(rate_limit_store[client_ip]) >= RATE_LIMIT_REQUESTS:
+        raise HTTPException(429, "Too many requests. Please try again later.")
+    rate_limit_store[client_ip].append(now)
+
+    # Security headers
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+# ---------- Dependency ----------
+
+
+def verify_admin_key(request: Request):
+    """Verify admin key for destructive operations."""
+    if not ADMIN_KEY:
+        return True  # No key configured, allow
+    key = request.headers.get("X-Admin-Key") or request.query_params.get("admin_key")
+    if key != ADMIN_KEY:
+        raise HTTPException(403, "Invalid or missing admin key")
+    return True
 
 
 # ---------- Models ----------
@@ -41,10 +95,6 @@ class StartSessionRequest(BaseModel):
     meet_url: str
     email_template: str
     emails: list[str]
-
-
-class DeleteRequest(BaseModel):
-    admin_key: str = ""
 
 
 # ---------- Helpers ----------
@@ -58,6 +108,26 @@ def get_client_ip(request: Request) -> str:
     if real_ip:
         return real_ip
     return request.client.host if request.client else "0.0.0.0"
+
+
+def validate_session_id(session_id: str) -> None:
+    if not session_id or not SESSION_ID_PATTERN.match(session_id):
+        raise HTTPException(400, "Invalid session ID format")
+
+
+def validate_meet_url(url: str) -> None:
+    if not url.startswith(("https://meet.google.com/", "http://meet.google.com/")):
+        raise HTTPException(400, "Meet URL must be a valid Google Meet link")
+
+
+def validate_email_list(emails: list[str]) -> list[str]:
+    clean = []
+    email_regex = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+    for e in emails:
+        e = e.strip().lower()
+        if e and email_regex.match(e):
+            clean.append(e)
+    return clean
 
 
 def compute_sharers(session: dict) -> list:
@@ -127,20 +197,24 @@ async def list_sessions():
 
 
 @app.post("/api/session/start")
-async def start_session(req: StartSessionRequest):
-    if not req.teacher_name.strip():
+async def start_session(request: Request, req: StartSessionRequest):
+    verify_admin_key(request)
+
+    if not req.teacher_name or not req.teacher_name.strip():
         raise HTTPException(400, "Teacher name is required")
-    if not req.meet_url.strip():
+    if len(req.teacher_name) > 100:
+        raise HTTPException(400, "Teacher name too long")
+
+    if not req.meet_url or not req.meet_url.strip():
         raise HTTPException(400, "Meet URL is required")
+    validate_meet_url(req.meet_url.strip())
+
     if not req.emails:
         raise HTTPException(400, "At least one student email is required")
+    if len(req.emails) > 200:
+        raise HTTPException(400, "Too many emails (max 200)")
 
-    clean_emails = []
-    for e in req.emails:
-        e = e.strip().lower()
-        if e and "@" in e:
-            clean_emails.append(e)
-
+    clean_emails = validate_email_list(req.emails)
     if not clean_emails:
         raise HTTPException(400, "No valid emails found")
 
@@ -177,6 +251,7 @@ async def start_session(req: StartSessionRequest):
 
 @app.get("/api/session/{session_id}")
 async def get_session(session_id: str):
+    validate_session_id(session_id)
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -195,6 +270,7 @@ async def get_session(session_id: str):
 
 @app.get("/api/session/{session_id}/visits")
 async def get_visits(session_id: str):
+    validate_session_id(session_id)
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
@@ -222,7 +298,9 @@ async def get_visits(session_id: str):
 
 
 @app.delete("/api/session/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, request: Request):
+    verify_admin_key(request)
+    validate_session_id(session_id)
     success = db.delete_session(session_id)
     if not success:
         raise HTTPException(404, "Session not found")
@@ -231,6 +309,8 @@ async def delete_session(session_id: str):
 
 @app.get("/go/{token}")
 async def track_and_redirect(token: str, request: Request):
+    if not token or not TOKEN_PATTERN.match(token):
+        raise HTTPException(404, "Invalid link token")
     result = db.find_session_by_token(token)
     if not result:
         raise HTTPException(404, "Link not found or expired")
@@ -273,6 +353,9 @@ async def upload_emails(file: UploadFile = File(...)):
     content = await file.read()
     emails = []
 
+    if len(content) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(400, "File too large (max 10MB)")
+
     if filename.endswith(".csv"):
         import csv, io
 
@@ -297,11 +380,12 @@ async def upload_emails(file: UploadFile = File(...)):
     else:
         raise HTTPException(400, "Unsupported file type. Use CSV or Excel.")
 
-    emails = list(dict.fromkeys(emails))
+    emails = list(dict.fromkeys(emails))[:200]  # cap at 200
     return {"emails": emails, "count": len(emails)}
 
 
 # ---------- Serve frontend ----------
+
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 if os.path.isdir(FRONTEND_DIR):
     app.mount(

@@ -6,6 +6,10 @@ __pycache__/
 server.log
 server.err
 
+# SQLite database
+data/
+*.db
+
 # Node
 node_modules/
 frontend/dist/

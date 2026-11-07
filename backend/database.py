@@ -2,7 +2,6 @@
 
 import os
 import sqlite3
-import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -209,15 +208,6 @@ def find_session_by_token(token: str) -> Optional[tuple[str, dict]]:
     if session:
         return session_id, session
     return None
-
-
-def get_invites(session_id: str) -> list:
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT email, token FROM invites WHERE session_id = ?", (session_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 # Initialize DB on import

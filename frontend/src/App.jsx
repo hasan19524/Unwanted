@@ -12,8 +12,6 @@ export default function App() {
   const [success, setSuccess] = useState('')
   const [copied, setCopied] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [adminKey, setAdminKey] = useState(sessionStorage.getItem('admin_key') || '')
-  const [showAdminKey, setShowAdminKey] = useState(false)
   // Read session from URL on load
   const urlParams = new URLSearchParams(window.location.search)
   const initialSession = urlParams.get('session')
@@ -46,14 +44,6 @@ export default function App() {
   useEffect(() => {
     fetchSessions()
   }, [fetchSessions])
-
-  useEffect(() => {
-    if (adminKey.trim()) {
-      sessionStorage.setItem('admin_key', adminKey.trim())
-    } else {
-      sessionStorage.removeItem('admin_key')
-    }
-  }, [adminKey])
 
   // Parse emails from textarea
   const parseEmails = (text) =>
@@ -99,13 +89,11 @@ export default function App() {
     }
     if (!subject.trim()) { setError('Email subject is required'); return }
 
-    if (!adminKey.trim()) { setError('Admin key is required'); return }
-
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/session/start`, {
+      const res = await fetch(`${API}/api/proxy/session/start`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           teacher_name: teacherName.trim(),
           meet_url: meetUrl.trim(),
@@ -116,11 +104,7 @@ export default function App() {
       })
       const data = await res.json()
       if (!res.ok) {
-        if (res.status === 403) {
-          setError('Invalid admin key. Please check your admin key and try again.')
-        } else {
-          setError(data.detail || 'Failed to start session')
-        }
+        setError(data.detail || 'Failed to start session')
         return
       }
       setActiveSessionId(data.session_id)
@@ -183,11 +167,9 @@ export default function App() {
   const confirmDelete = async () => {
     const sid = deleteConfirm
     setDeleteConfirm(null)
-    if (!adminKey.trim()) { setError('Admin key is required'); return }
     try {
-      const res = await fetch(`${API}/api/session/${sid}`, {
+      const res = await fetch(`${API}/api/proxy/session/${sid}`, {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       })
       if (res.ok) {
         if (activeSessionId === sid) {
@@ -206,11 +188,7 @@ export default function App() {
         setTimeout(() => setSuccess(''), 3000)
       } else {
         const d = await res.json()
-        if (res.status === 403) {
-          setError('Invalid admin key. Please check your admin key and try again.')
-        } else {
-          setError(d.detail || 'Delete failed')
-        }
+        setError(d.detail || 'Delete failed')
       }
     } catch (e) {
       setError('Delete failed')
@@ -260,19 +238,6 @@ export default function App() {
   const formatDate = (ts) => {
     try { return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
     catch { return ts }
-  }
-
-  const getAuthHeaders = () => {
-    const headers = { 'Content-Type': 'application/json' }
-    if (adminKey.trim()) {
-      headers['X-Admin-Key'] = adminKey.trim()
-    }
-    return headers
-  }
-
-  const clearAdminKey = () => {
-    setAdminKey('')
-    sessionStorage.removeItem('admin_key')
   }
 
   return (
@@ -334,54 +299,6 @@ export default function App() {
             <div className="form-group">
               <label>Teacher Name (sender name)</label>
               <input type="text" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} placeholder="e.g. Mrs. Sharma" />
-            </div>
-            <div className="form-group">
-              <label>Admin Key</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showAdminKey ? 'text' : 'password'}
-                  value={adminKey}
-                  onChange={(e) => setAdminKey(e.target.value)}
-                  placeholder="Enter admin key"
-                  style={{ paddingRight: '40px' }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAdminKey(!showAdminKey)}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text-secondary)',
-                    fontSize: '14px',
-                    padding: '4px',
-                  }}
-                  title={showAdminKey ? 'Hide' : 'Show'}
-                >
-                  {showAdminKey ? '🙈' : '👁'}
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={clearAdminKey}
-                style={{
-                  marginTop: '6px',
-                  padding: '4px 10px',
-                  fontSize: '12px',
-                  background: 'transparent',
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
-                }}
-              >
-                Clear key
-              </button>
-              <small className="hint">Enter the admin key to create sessions. Stored in session only.</small>
             </div>
             <div className="form-group">
               <label>Google Meet Link</label>

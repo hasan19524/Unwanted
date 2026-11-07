@@ -1,8 +1,8 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-python-dotenv==1.0.1
-pydantic==2.10.6
-httpx==0.28.1
-python-multipart==0.0.20
-openpyxl==3.1.5
-aiofiles==24.1.0
+fastapi>=0.100.0,<0.110.0
+uvicorn[standard]>=0.23.0,<0.25.0
+python-dotenv>=1.0.0,<1.1.0
+pydantic>=2.0.0,<3.0.0
+httpx>=0.24.0,<0.26.0
+python-multipart>=0.0.6,<0.0.7
+openpyxl>=3.1.0,<3.2.0
+aiofiles>=23.0.0,<24.0.0

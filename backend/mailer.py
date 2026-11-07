@@ -1,19 +1,14 @@
-"""Email sending via Gmail SMTP with app password - multi-threaded."""
+"""Email sending via Resend HTTPS API - multi-threaded."""
 
-import smtplib
 import os
 import concurrent.futures
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_DISPLAY_NAME = os.getenv("SMTP_DISPLAY_NAME", "Teacher")
-
-# Max parallel email threads - Gmail recommends keeping this modest
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 MAX_EMAIL_THREADS = 10
 
 
@@ -24,32 +19,37 @@ def send_single_email(
     body_html: str = None,
     display_name: str = None,
 ) -> tuple[str, bool, str]:
-    """Send a single email. Returns (email, success, error_message)."""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        return (
-            to,
-            False,
-            "SMTP not configured. Set SMTP_EMAIL and SMTP_PASSWORD in .env",
-        )
+    """Send a single email via Resend API. Returns (email, success, error_message)."""
+    if not RESEND_API_KEY:
+        return to, False, "RESEND_API_KEY not configured"
 
-    name = display_name or SMTP_DISPLAY_NAME
+    from_field = EMAIL_FROM
+    if display_name:
+        from_field = f"{display_name} <{EMAIL_FROM}>"
+
+    payload = {
+        "from": from_field,
+        "to": [to],
+        "subject": subject,
+        "text": body_text,
+    }
+    if body_html:
+        payload["html"] = body_html
+
     try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"{name} <{SMTP_EMAIL}>"
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg["Reply-To"] = SMTP_EMAIL
-
-        msg.attach(MIMEText(body_text, "plain"))
-        if body_html:
-            msg.attach(MIMEText(body_html, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to, msg.as_string())
-
-        return to, True, ""
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {RESEND_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if resp.status_code == 200:
+            return to, True, ""
+        else:
+            return to, False, f"Resend API error {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
         return to, False, str(e)
 
@@ -65,26 +65,22 @@ def send_bulk(
     Each dict has 'email' and 'token'. Returns summary dict."""
     results = {"sent": 0, "failed": 0, "errors": []}
 
-    # Prepare all email tasks
     tasks = []
     for item in emails:
         email = item["email"]
         token = item["token"]
         link = f"{base_url}/go/{token}"
 
-        # Replace {{LINK}} placeholder
         if "{{LINK}}" in template:
             body = template.replace("{{LINK}}", link)
         else:
             body = template + "\n\n" + link
 
-        # Build HTML version
         html_body = body.replace("\n", "<br>")
         html_body = html_body.replace(link, f'<a href="{link}">{link}</a>')
 
         tasks.append((email, body, html_body))
 
-    # Send emails in parallel using thread pool
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=min(MAX_EMAIL_THREADS, len(tasks))
     ) as executor:

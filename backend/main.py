@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 load_dotenv()
 
@@ -28,18 +28,37 @@ CORS_ORIGINS = [
     for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     if o.strip()
 ]
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
+DB_PATH = os.getenv("DB_PATH", "./data/tracker.db")
+
+
+def validate_config():
+    """Validate required configuration on startup. Never prints secrets."""
+    errors = []
+
+    required = {
+        "APP_BASE_URL": APP_BASE_URL,
+        "CORS_ORIGINS": CORS_ORIGINS,
+        "ADMIN_KEY": ADMIN_KEY,
+        "RESEND_API_KEY": RESEND_API_KEY,
+        "EMAIL_FROM": EMAIL_FROM,
+    }
+    for name, value in required.items():
+        if not value:
+            errors.append(f"Missing required environment variable: {name}")
+
+    if APP_BASE_URL and not APP_BASE_URL.startswith(("http://", "https://")):
+        errors.append("APP_BASE_URL must start with http:// or https://")
+
+    if errors:
+        raise RuntimeError("Configuration validation failed:\n" + "\n".join(errors))
+
+
+# Validate configuration at import time
+validate_config()
 
 app = FastAPI(title="Class Link Tracker", version="2.0.0")
-
-# Rate limiting: simple in-memory store
-rate_limit_store: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT_REQUESTS = 20
-RATE_LIMIT_WINDOW = 60  # seconds
-
-# Session ID validation pattern (alphanumeric, hyphens, underscores only)
-SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-TOKEN_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +99,7 @@ async def security_and_rate_limit(request: Request, call_next):
 def verify_admin_key(request: Request):
     """Verify admin key for destructive operations."""
     if not ADMIN_KEY:
-        return True  # No key configured, allow
+        return True
     key = request.headers.get("X-Admin-Key") or request.query_params.get("admin_key")
     if key != ADMIN_KEY:
         raise HTTPException(403, "Invalid or missing admin key")
@@ -98,6 +117,13 @@ class StartSessionRequest(BaseModel):
 
 
 # ---------- Helpers ----------
+
+rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_REQUESTS = 20
+RATE_LIMIT_WINDOW = 60
+
+SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+TOKEN_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def get_client_ip(request: Request) -> str:
@@ -131,37 +157,46 @@ def validate_email_list(emails: list[str]) -> list[str]:
 
 
 def compute_sharers(session: dict) -> list:
-    """Compute list of students whose links were used by unknown devices."""
+    """Compute list of students whose links show multiple device/IP patterns.
+
+    Does NOT assume the first visitor is the owner. Excludes crawler visits
+    from sharing calculations. Flags tokens with visits from multiple
+    (ip, device) combinations as potentially shared — but does not claim
+    that IP/device differences prove someone's identity.
+    """
     invites_map = {inv["token"]: inv["email"] for inv in session["invites"]}
     by_token: dict = {}
+
     for v in session["visits"]:
+        # Exclude crawlers from sharing calculations
+        if bool(v.get("is_crawler", False)):
+            continue
         by_token.setdefault(v["token"], []).append(v)
 
     sharers = []
     for token, visits in by_token.items():
-        combos = set()
+        # Group by (ip, device) combo
+        combos: dict = {}
         for v in visits:
-            combos.add((v["ip"], v["device"]))
+            combo_key = (v["ip"], v["device"])
+            combos.setdefault(combo_key, []).append(v)
+
         if len(combos) <= 1:
             continue
 
-        outsider_visits = []
-        seen_combos = set()
-        for v in visits:
-            combo = (v["ip"], v["device"])
-            if combo in seen_combos:
-                outsider_visits.append(v)
-            else:
-                seen_combos.add(combo)
-                if len(seen_combos) > 1:
-                    outsider_visits.append(v)
+        # Multiple combos detected — potential additional visitors
+        all_combo_keys = list(combos.keys())
+        additional_visits = []
+        for combo_key in all_combo_keys[1:]:
+            additional_visits.extend(combos[combo_key])
 
-        if outsider_visits:
+        if additional_visits:
             sharers.append(
                 {
                     "student_email": invites_map.get(token, "Unknown"),
                     "token": token,
-                    "outsider_count": len(outsider_visits),
+                    "outsider_count": len(additional_visits),
+                    "unique_combos": len(all_combo_keys),
                     "outsiders": [
                         {
                             "ip": v["ip"],
@@ -171,9 +206,9 @@ def compute_sharers(session: dict) -> list:
                             "os": v["os"],
                             "referrer_app": v["referrer_app"],
                             "time": v["timestamp"],
-                            "is_crawler": bool(v["is_crawler"]),
+                            "is_crawler": bool(v.get("is_crawler", False)),
                         }
-                        for v in outsider_visits
+                        for v in additional_visits
                     ],
                 }
             )
@@ -182,6 +217,12 @@ def compute_sharers(session: dict) -> list:
 
 
 # ---------- Routes ----------
+
+
+@app.get("/health")
+async def health_root():
+    """Lightweight health endpoint for Cloudflare keep-alive pings."""
+    return {"status": "ok"}
 
 
 @app.get("/api/health")
@@ -353,7 +394,7 @@ async def upload_emails(file: UploadFile = File(...)):
     content = await file.read()
     emails = []
 
-    if len(content) > 10 * 1024 * 1024:  # 10MB limit
+    if len(content) > 10 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 10MB)")
 
     if filename.endswith(".csv"):
@@ -380,7 +421,7 @@ async def upload_emails(file: UploadFile = File(...)):
     else:
         raise HTTPException(400, "Unsupported file type. Use CSV or Excel.")
 
-    emails = list(dict.fromkeys(emails))[:200]  # cap at 200
+    emails = list(dict.fromkeys(emails))[:200]
     return {"emails": emails, "count": len(emails)}
 
 

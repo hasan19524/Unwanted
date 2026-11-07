@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
-const API = ''
+const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
   const [sessions, setSessions] = useState([])

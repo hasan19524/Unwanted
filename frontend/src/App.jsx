@@ -23,6 +23,7 @@ export default function App() {
   // Form state
   const [teacherName, setTeacherName] = useState('')
   const [meetUrl, setMeetUrl] = useState('')
+  const [subject, setSubject] = useState('Class Link')
   const [emailTemplate, setEmailTemplate] = useState(
     'Hi everyone,\n\nJoin today\'s class here: {{LINK}}\n\nSee you at 10 AM!\n\n— Teacher'
   )
@@ -86,6 +87,7 @@ export default function App() {
       setError('Email template must contain {{LINK}} placeholder')
       return
     }
+    if (!subject.trim()) { setError('Email subject is required'); return }
 
     setLoading(true)
     try {
@@ -96,6 +98,7 @@ export default function App() {
           teacher_name: teacherName.trim(),
           meet_url: meetUrl.trim(),
           email_template: emailTemplate,
+          subject: subject.trim(),
           emails: parsedEmails,
         }),
       })
@@ -300,6 +303,10 @@ export default function App() {
             <div className="form-group">
               <label>Google Meet Link</label>
               <input type="url" value={meetUrl} onChange={(e) => setMeetUrl(e.target.value)} placeholder="https://meet.google.com/xxx-yyy-zzz" />
+            </div>
+            <div className="form-group">
+              <label>Email Subject</label>
+              <input type="text" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Class Link" />
             </div>
             <div className="form-group">
               <label>Email Template (use {'{{LINK}}'} for the unique link)</label>

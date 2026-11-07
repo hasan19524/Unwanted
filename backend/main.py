@@ -113,6 +113,7 @@ class StartSessionRequest(BaseModel):
     teacher_name: str
     meet_url: str
     email_template: str
+    subject: str
     emails: list[str]
 
 
@@ -261,6 +262,8 @@ async def start_session(request: Request, req: StartSessionRequest):
 
     if "{{LINK}}" not in (req.email_template or ""):
         raise HTTPException(400, "Email template must contain {{LINK}} placeholder")
+    if not req.subject or not req.subject.strip():
+        raise HTTPException(400, "Email subject is required")
 
     session = db.create_session(
         teacher_name=req.teacher_name.strip(),
@@ -276,6 +279,7 @@ async def start_session(request: Request, req: StartSessionRequest):
         meet_url=session["meet_url"],
         base_url=base_url,
         display_name=req.teacher_name.strip(),
+        subject=req.subject.strip(),
     )
 
     dashboard_url = f"{base_url}/dashboard?session={session['id']}"

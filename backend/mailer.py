@@ -60,6 +60,7 @@ def send_bulk(
     meet_url: str,
     base_url: str,
     display_name: str = None,
+    subject: str = "Class Link",
 ) -> dict:
     """Send emails to a list of recipients using multiple threads.
     Each dict has 'email' and 'token'. Returns summary dict."""
@@ -88,7 +89,7 @@ def send_bulk(
             executor.submit(
                 send_single_email,
                 to=email,
-                subject="Class Link",
+                subject=subject,
                 body_text=body,
                 body_html=html_body,
                 display_name=display_name,

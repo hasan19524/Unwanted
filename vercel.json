@@ -1,12 +1,5 @@
 {
   "version": 2,
   "framework": "vite",
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "devCommand": "cd frontend && npm run dev",
-  "installCommand": "cd frontend && npm install",
-  "outputDirectory": "frontend/dist",
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1" },
-    { "src": "/(.*)", "dest": "/frontend/dist/index.html" }
-  ]
+  "outputDirectory": "frontend/dist"
 }

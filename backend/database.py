@@ -80,7 +80,6 @@ def create_session(
     meet_url: str,
     email_template: str,
     emails: list[str],
-    teacher_email: str,
 ) -> dict:
     import secrets
 
@@ -90,11 +89,10 @@ def create_session(
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (id, teacher_name, teacher_email, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                "INSERT INTO sessions (id, teacher_name, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s)",
                 (
                     session_id,
                     teacher_name,
-                    teacher_email,
                     meet_url,
                     email_template,
                     created_at,
@@ -152,7 +150,6 @@ def get_session(session_id: str) -> Optional[dict]:
     return {
         "id": row["id"],
         "teacher_name": row["teacher_name"],
-        "teacher_email": row["teacher_email"],
         "meet_url": row["meet_url"],
         "email_template": row["email_template"],
         "created_at": row["created_at"],
@@ -161,25 +158,16 @@ def get_session(session_id: str) -> Optional[dict]:
     }
 
 
-def list_sessions(teacher_email: str = None) -> list[dict]:
+def list_sessions() -> list[dict]:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            if teacher_email:
-                cur.execute(
-                    "SELECT s.*, "
-                    "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
-                    "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
-                    "FROM sessions s WHERE s.teacher_email = %s ORDER BY created_at DESC",
-                    (teacher_email,),
-                )
-            else:
-                cur.execute(
-                    "SELECT s.*, "
-                    "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
-                    "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
-                    "FROM sessions s ORDER BY created_at DESC"
-                )
+            cur.execute(
+                "SELECT s.*, "
+                "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
+                "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
+                "FROM sessions s ORDER BY created_at DESC"
+            )
             rows = cur.fetchall()
     finally:
         conn.close()

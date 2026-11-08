@@ -5,15 +5,12 @@ const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 export default function App() {
   // ---------- Auth ----------
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return !!localStorage.getItem('teacher_email')
-  })
-  const [teacherEmail, setTeacherEmail] = useState(() => {
-    return localStorage.getItem('teacher_email') || ''
+    return !!localStorage.getItem('auth_ok')
   })
   const [loginError, setLoginError] = useState('')
 
   const headers = () => ({
-    'X-Teacher-Email': teacherEmail,
+    'X-App-Password': localStorage.getItem('app_password') || '',
     'Content-Type': 'application/json',
   })
 
@@ -21,21 +18,20 @@ export default function App() {
     e.preventDefault()
     setLoginError('')
     const form = e.target.elements
-    const email = form.email.value.trim()
     const password = form.password.value
     try {
       const res = await fetch(`${API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ password }),
       })
       if (res.ok) {
-        localStorage.setItem('teacher_email', email)
-        setTeacherEmail(email)
+        localStorage.setItem('auth_ok', '1')
+        localStorage.setItem('app_password', password)
         setIsAuthenticated(true)
       } else {
         const d = await res.json()
-        setLoginError(d.detail || 'Invalid credentials')
+        setLoginError(d.detail || 'Invalid password')
       }
     } catch (err) {
       setLoginError('Network error: ' + err.message)
@@ -43,9 +39,8 @@ export default function App() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('teacher_email')
-    localStorage.removeItem('active_session_id')
-    setTeacherEmail('')
+    localStorage.removeItem('auth_ok')
+    localStorage.removeItem('app_password')
     setIsAuthenticated(false)
     setSessions([])
     setSessionDetail(null)
@@ -60,20 +55,16 @@ export default function App() {
       <div className="login-page">
         <div className="login-card">
           <h1>Class Link Tracker</h1>
-          <p>Teacher login</p>
+          <p>Enter the app password</p>
           {loginError && <div className="alert alert-error">{loginError}</div>}
           <form onSubmit={handleLogin}>
-            <div className="form-group">
-              <label>Teacher email</label>
-              <input type="email" name="email" required placeholder="you@gmail.com" />
-            </div>
             <div className="form-group">
               <label>Password</label>
               <input type="password" name="password" required />
             </div>
             <button type="submit" className="btn btn-primary">Sign in</button>
           </form>
-          <p className="login-hint">Set TEACHER_EMAIL and TEACHER_PASSWORD_HASH on Render to configure access.</p>
+          <p className="login-hint">The password is set in the APP_PASSWORD environment variable on Render.</p>
         </div>
       </div>
     )

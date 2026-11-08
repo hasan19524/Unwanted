@@ -1,1 +1,1 @@
-{"$schema": "https://openapi.vercel.sh/vercel.json", "framework": "vite", "buildCommand": "npm install && npm run build", "outputDirectory": "dist", "routes": [{ "src": "/api/(.*)", "dest": "/api/[[...slug]].js" }, { "src": "/(.*)", "dest": "/index.html" }]}
+{"$schema": "https://openapi.vercel.sh/vercel.json", "framework": "vite", "buildCommand": "npm install && npm run build", "outputDirectory": "dist", "routes": [{ "src": "/api/(.*)", "dest": "/api/[[...slug]].js" }, { "handle": "filesystem" }, { "src": "/(.*)", "dest": "/index.html" }]}

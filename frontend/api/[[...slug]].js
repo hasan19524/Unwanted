@@ -48,8 +48,16 @@ export default async function handler(req, res) {
         req.headers['content-type'] || 'application/json';
     }
 
-    // Pass through client identity headers so the backend logs real data
-    for (const h of ['x-forwarded-for', 'x-real-ip', 'user-agent', 'referer']) {
+    // Pass through client identity headers so the backend logs real data,
+    // plus the user auth headers (needed for every authenticated request).
+    for (const h of [
+      'x-forwarded-for',
+      'x-real-ip',
+      'user-agent',
+      'referer',
+      'x-user-email',
+      'x-user-password',
+    ]) {
       if (req.headers[h]) headers[h] = req.headers[h];
     }
 

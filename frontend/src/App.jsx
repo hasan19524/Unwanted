@@ -85,45 +85,6 @@ export default function App() {
     setActiveSessionId(null)
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <h1>Class Link Tracker</h1>
-          <p>{authMode === 'login' ? 'Sign in to your account' : 'Create your account'}</p>
-          {authMode === 'login' && loginError && <div className="alert alert-error">{loginError}</div>}
-          {authMode === 'signup' && signupError && <div className="alert alert-error">{signupError}</div>}
-          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup}>
-            <div className="form-group">
-              <label>Email address</label>
-              <input type="email" name="email" required placeholder="you@gmail.com" />
-            </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input type="password" name="password" required />
-            </div>
-            <button type="submit" className="btn btn-primary">
-              {authMode === 'login' ? 'Sign in' : 'Create account'}
-            </button>
-          </form>
-          <div className="auth-switch">
-            {authMode === 'login' ? (
-              <>
-                <span>No account yet?</span>
-                <button type="button" className="link-btn" onClick={() => setAuthMode('signup')}>Sign up</button>
-              </>
-            ) : (
-              <>
-                <span>Already have an account?</span>
-                <button type="button" className="link-btn" onClick={() => setAuthMode('login')}>Sign in</button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   // ---------- App state ----------
   const [sessions, setSessions] = useState([])
   const [sessionDetail, setSessionDetail] = useState(null)
@@ -168,8 +129,8 @@ export default function App() {
   }, [userEmail])
 
   useEffect(() => {
-    fetchSessions()
-  }, [fetchSessions])
+    if (isAuthenticated) fetchSessions()
+  }, [isAuthenticated, fetchSessions])
 
   // Parse emails from textarea
   const parseEmails = (text) =>
@@ -280,12 +241,13 @@ export default function App() {
   }, [userEmail])
 
   useEffect(() => {
+    if (!isAuthenticated) return
     if (activeSessionId && view === 'detail') {
       fetchSessionDetail(activeSessionId)
       pollRef.current = setInterval(() => fetchSessionDetail(activeSessionId), 3000)
       return () => clearInterval(pollRef.current)
     }
-  }, [activeSessionId, view, fetchSessionDetail])
+  }, [isAuthenticated, activeSessionId, view, fetchSessionDetail])
 
   // Delete session
   const deleteSession = async (sid) => {
@@ -369,6 +331,45 @@ export default function App() {
   const formatDate = (ts) => {
     try { return new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
     catch { return ts }
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h1>Class Link Tracker</h1>
+          <p>{authMode === 'login' ? 'Sign in to your account' : 'Create your account'}</p>
+          {authMode === 'login' && loginError && <div className="alert alert-error">{loginError}</div>}
+          {authMode === 'signup' && signupError && <div className="alert alert-error">{signupError}</div>}
+          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup}>
+            <div className="form-group">
+              <label>Email address</label>
+              <input type="email" name="email" required placeholder="you@gmail.com" />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input type="password" name="password" required />
+            </div>
+            <button type="submit" className="btn btn-primary">
+              {authMode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
+          <div className="auth-switch">
+            {authMode === 'login' ? (
+              <>
+                <span>No account yet?</span>
+                <button type="button" className="link-btn" onClick={() => setAuthMode('signup')}>Sign up</button>
+              </>
+            ) : (
+              <>
+                <span>Already have an account?</span>
+                <button type="button" className="link-btn" onClick={() => setAuthMode('login')}>Sign in</button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

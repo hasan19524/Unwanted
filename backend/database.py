@@ -25,6 +25,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     teacher_name TEXT NOT NULL,
+                    teacher_email TEXT NOT NULL,
                     meet_url TEXT NOT NULL,
                     email_template TEXT,
                     created_at TEXT NOT NULL
@@ -57,6 +58,11 @@ def init_db():
                 CREATE INDEX IF NOT EXISTS idx_visits_session ON visits(session_id);
                 CREATE INDEX IF NOT EXISTS idx_visits_token ON visits(token);
             """)
+            # Add teacher_email column to existing sessions table if missing
+            cur.execute("""
+                ALTER TABLE sessions
+                ADD COLUMN IF NOT EXISTS teacher_email TEXT NOT NULL DEFAULT '';
+            """)
         conn.commit()
     finally:
         conn.close()
@@ -70,7 +76,11 @@ init_db()
 
 
 def create_session(
-    teacher_name: str, meet_url: str, email_template: str, emails: list[str]
+    teacher_name: str,
+    meet_url: str,
+    email_template: str,
+    emails: list[str],
+    teacher_email: str,
 ) -> dict:
     import secrets
 
@@ -80,8 +90,15 @@ def create_session(
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (id, teacher_name, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s)",
-                (session_id, teacher_name, meet_url, email_template, created_at),
+                "INSERT INTO sessions (id, teacher_name, teacher_email, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                (
+                    session_id,
+                    teacher_name,
+                    teacher_email,
+                    meet_url,
+                    email_template,
+                    created_at,
+                ),
             )
             invites = []
             for email in emails:
@@ -103,6 +120,7 @@ def create_session(
     return {
         "id": session_id,
         "teacher_name": teacher_name,
+        "teacher_email": teacher_email,
         "meet_url": meet_url,
         "email_template": email_template,
         "invites": invites,
@@ -134,6 +152,7 @@ def get_session(session_id: str) -> Optional[dict]:
     return {
         "id": row["id"],
         "teacher_name": row["teacher_name"],
+        "teacher_email": row["teacher_email"],
         "meet_url": row["meet_url"],
         "email_template": row["email_template"],
         "created_at": row["created_at"],
@@ -142,16 +161,25 @@ def get_session(session_id: str) -> Optional[dict]:
     }
 
 
-def list_sessions() -> list[dict]:
+def list_sessions(teacher_email: str = None) -> list[dict]:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                "SELECT s.*, "
-                "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
-                "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
-                "FROM sessions s ORDER BY created_at DESC"
-            )
+            if teacher_email:
+                cur.execute(
+                    "SELECT s.*, "
+                    "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
+                    "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
+                    "FROM sessions s WHERE s.teacher_email = %s ORDER BY created_at DESC",
+                    (teacher_email,),
+                )
+            else:
+                cur.execute(
+                    "SELECT s.*, "
+                    "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
+                    "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
+                    "FROM sessions s ORDER BY created_at DESC"
+                )
             rows = cur.fetchall()
     finally:
         conn.close()

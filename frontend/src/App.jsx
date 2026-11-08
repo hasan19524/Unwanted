@@ -3,6 +3,83 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 export default function App() {
+  // ---------- Auth ----------
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return !!localStorage.getItem('teacher_email')
+  })
+  const [teacherEmail, setTeacherEmail] = useState(() => {
+    return localStorage.getItem('teacher_email') || ''
+  })
+  const [loginError, setLoginError] = useState('')
+
+  const headers = () => ({
+    'X-Teacher-Email': teacherEmail,
+    'Content-Type': 'application/json',
+  })
+
+  const handleLogin = async (e) => {
+    e.preventDefault()
+    setLoginError('')
+    const form = e.target.elements
+    const email = form.email.value.trim()
+    const password = form.password.value
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (res.ok) {
+        localStorage.setItem('teacher_email', email)
+        setTeacherEmail(email)
+        setIsAuthenticated(true)
+      } else {
+        const d = await res.json()
+        setLoginError(d.detail || 'Invalid credentials')
+      }
+    } catch (err) {
+      setLoginError('Network error: ' + err.message)
+    }
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('teacher_email')
+    localStorage.removeItem('active_session_id')
+    setTeacherEmail('')
+    setIsAuthenticated(false)
+    setSessions([])
+    setSessionDetail(null)
+    setVisits([])
+    setSharers([])
+    setView('list')
+    setActiveSessionId(null)
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h1>Class Link Tracker</h1>
+          <p>Teacher login</p>
+          {loginError && <div className="alert alert-error">{loginError}</div>}
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label>Teacher Email</label>
+              <input type="email" name="email" required placeholder="you@gmail.com" />
+            </div>
+            <div className="form-group">
+              <label>Password</label>
+              <input type="password" name="password" required />
+            </div>
+            <button type="submit" className="btn btn-primary btn-large">Login</button>
+          </form>
+          <p className="login-hint">Set TEACHER_EMAIL and TEACHER_PASSWORD_HASH on Render to configure.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ---------- App state ----------
   const [sessions, setSessions] = useState([])
   const [sessionDetail, setSessionDetail] = useState(null)
   const [visits, setVisits] = useState([])
@@ -35,13 +112,15 @@ export default function App() {
   // Fetch all sessions
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/api/sessions`)
+      const res = await fetch(`${API}/api/sessions`, { headers: headers() })
       if (res.ok) {
         const data = await res.json()
         setSessions(data.sessions || [])
+      } else if (res.status === 401 || res.status === 403) {
+        handleLogout()
       }
     } catch (e) { /* silent */ }
-  }, [])
+  }, [teacherEmail])
 
   useEffect(() => {
     fetchSessions()
@@ -93,9 +172,9 @@ export default function App() {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/proxy/session/start`, {
+      const res = await fetch(`${API}/api/session/start`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: headers(),
         body: JSON.stringify({
           teacher_name: teacherName.trim(),
           meet_url: meetUrl.trim(),
@@ -134,8 +213,8 @@ export default function App() {
     if (!sid) return
     try {
       const [detailRes, visitsRes] = await Promise.all([
-        fetch(`${API}/api/session/${sid}`),
-        fetch(`${API}/api/session/${sid}/visits`),
+        fetch(`${API}/api/session/${sid}`, { headers: headers() }),
+        fetch(`${API}/api/session/${sid}/visits`, { headers: headers() }),
       ])
       if (detailRes.ok) {
         setSessionDetail(await detailRes.json())
@@ -144,8 +223,8 @@ export default function App() {
         setView('list')
         setActiveSessionId(null)
         localStorage.removeItem('active_session_id')
-      } else {
-        setError('Failed to load session details')
+      } else if (detailRes.status === 401 || detailRes.status === 403) {
+        handleLogout()
       }
       if (visitsRes.ok) {
         const vd = await visitsRes.json()
@@ -153,7 +232,7 @@ export default function App() {
         setSharers(vd.sharers || [])
       }
     } catch (e) { /* silent */ }
-  }, [])
+  }, [teacherEmail])
 
   useEffect(() => {
     if (activeSessionId && view === 'detail') {
@@ -172,8 +251,9 @@ export default function App() {
     const sid = deleteConfirm
     setDeleteConfirm(null)
     try {
-      const res = await fetch(`${API}/api/proxy/session/${sid}`, {
+      const res = await fetch(`${API}/api/session/${sid}`, {
         method: 'DELETE',
+        headers: headers(),
       })
       if (res.ok) {
         if (activeSessionId === sid) {
@@ -260,6 +340,10 @@ export default function App() {
             <div className="sidebar-brand-icon">C</div>
             <span className="sidebar-brand-text">ClassLink</span>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.85rem', color: '#6b6b6b' }}>
+            {teacherEmail}
+          </div>
+          <button className="btn btn-small" onClick={handleLogout}>Logout</button>
           <button className="btn btn-small" onClick={newSession}>+ New</button>
         </div>
         <div className="session-list">

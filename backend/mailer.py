@@ -1,19 +1,15 @@
-"""Email sending via Gmail SMTP - multi-threaded."""
+"""Email sending via Brevo API - multi-threaded. Free tier: 300 emails/day."""
 
 import os
-import smtplib
+import httpx
 import concurrent.futures
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_DISPLAY_NAME = os.getenv("SMTP_DISPLAY_NAME", "Teacher")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "")
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "Teacher")
 MAX_EMAIL_THREADS = 10
 
 
@@ -24,29 +20,37 @@ def send_single_email(
     body_html: str = None,
     display_name: str = None,
 ) -> tuple[str, bool, str]:
-    """Send a single email via Gmail SMTP. Returns (email, success, error_message)."""
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        return to, False, "SMTP_EMAIL or SMTP_PASSWORD not configured"
+    """Send a single email via Brevo API. Returns (email, success, error_message)."""
+    if not BREVO_API_KEY:
+        return to, False, "BREVO_API_KEY not configured"
 
-    from_field = SMTP_EMAIL
-    if display_name:
-        from_field = f"{display_name} <{SMTP_EMAIL}>"
+    sender_email = BREVO_SENDER_EMAIL
+    sender_name = display_name or BREVO_SENDER_NAME
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"] = from_field
-    msg["To"] = to
-
-    msg.attach(MIMEText(body_text, "plain"))
+    payload = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": to}],
+        "subject": subject,
+        "textContent": body_text,
+    }
     if body_html:
-        msg.attach(MIMEText(body_html, "html"))
+        payload["htmlContent"] = body_html
 
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
-            server.starttls()
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, [to], msg.as_string())
-        return to, True, ""
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": BREVO_API_KEY,
+                    "Content-Type": "application/json",
+                    "accept": "application/json",
+                },
+                json=payload,
+            )
+        if resp.status_code in (200, 201):
+            return to, True, ""
+        else:
+            return to, False, f"Brevo API error {resp.status_code}: {resp.text[:200]}"
     except Exception as e:
         return to, False, str(e)
 

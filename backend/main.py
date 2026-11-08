@@ -28,10 +28,10 @@ CORS_ORIGINS = [
     for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     if o.strip()
 ]
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_DISPLAY_NAME = os.getenv("SMTP_DISPLAY_NAME", "Teacher")
-DB_PATH = os.getenv("DB_PATH", "./data/tracker.db")
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "")
+BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "Teacher")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 
 def validate_config():
@@ -42,8 +42,9 @@ def validate_config():
         "APP_BASE_URL": APP_BASE_URL,
         "CORS_ORIGINS": CORS_ORIGINS,
         "ADMIN_KEY": ADMIN_KEY,
-        "SMTP_EMAIL": SMTP_EMAIL,
-        "SMTP_PASSWORD": SMTP_PASSWORD,
+        "BREVO_API_KEY": BREVO_API_KEY,
+        "BREVO_SENDER_EMAIL": BREVO_SENDER_EMAIL,
+        "DATABASE_URL": DATABASE_URL,
     }
     for name, value in required.items():
         if not value:

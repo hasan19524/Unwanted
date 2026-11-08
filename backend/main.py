@@ -28,8 +28,9 @@ CORS_ORIGINS = [
     for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     if o.strip()
 ]
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_DISPLAY_NAME = os.getenv("SMTP_DISPLAY_NAME", "Teacher")
 DB_PATH = os.getenv("DB_PATH", "./data/tracker.db")
 
 
@@ -41,8 +42,8 @@ def validate_config():
         "APP_BASE_URL": APP_BASE_URL,
         "CORS_ORIGINS": CORS_ORIGINS,
         "ADMIN_KEY": ADMIN_KEY,
-        "RESEND_API_KEY": RESEND_API_KEY,
-        "EMAIL_FROM": EMAIL_FROM,
+        "SMTP_EMAIL": SMTP_EMAIL,
+        "SMTP_PASSWORD": SMTP_PASSWORD,
     }
     for name, value in required.items():
         if not value:

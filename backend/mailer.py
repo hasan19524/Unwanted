@@ -1,14 +1,19 @@
-"""Email sending via Resend HTTPS API - multi-threaded."""
+"""Email sending via Gmail SMTP - multi-threaded."""
 
 import os
+import smtplib
 import concurrent.futures
-import httpx
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 
 load_dotenv()
 
-RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_DISPLAY_NAME = os.getenv("SMTP_DISPLAY_NAME", "Teacher")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 MAX_EMAIL_THREADS = 10
 
 
@@ -19,37 +24,29 @@ def send_single_email(
     body_html: str = None,
     display_name: str = None,
 ) -> tuple[str, bool, str]:
-    """Send a single email via Resend API. Returns (email, success, error_message)."""
-    if not RESEND_API_KEY:
-        return to, False, "RESEND_API_KEY not configured"
+    """Send a single email via Gmail SMTP. Returns (email, success, error_message)."""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        return to, False, "SMTP_EMAIL or SMTP_PASSWORD not configured"
 
-    from_field = EMAIL_FROM
+    from_field = SMTP_EMAIL
     if display_name:
-        from_field = f"{display_name} <{EMAIL_FROM}>"
+        from_field = f"{display_name} <{SMTP_EMAIL}>"
 
-    payload = {
-        "from": from_field,
-        "to": [to],
-        "subject": subject,
-        "text": body_text,
-    }
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = from_field
+    msg["To"] = to
+
+    msg.attach(MIMEText(body_text, "plain"))
     if body_html:
-        payload["html"] = body_html
+        msg.attach(MIMEText(body_html, "html"))
 
     try:
-        with httpx.Client(timeout=15.0) as client:
-            resp = client.post(
-                "https://api.resend.com/emails",
-                headers={
-                    "Authorization": f"Bearer {RESEND_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        if resp.status_code == 200:
-            return to, True, ""
-        else:
-            return to, False, f"Resend API error {resp.status_code}: {resp.text[:200]}"
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.sendmail(SMTP_EMAIL, [to], msg.as_string())
+        return to, True, ""
     except Exception as e:
         return to, False, str(e)
 

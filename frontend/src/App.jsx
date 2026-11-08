@@ -106,11 +106,19 @@ export default function App() {
               {authMode === 'login' ? 'Sign in' : 'Create account'}
             </button>
           </form>
-          <p className="login-hint">
-            {authMode === 'login'
-              ? `Don't have an account? <button type="button" className="link-btn" onClick={() => setAuthMode('signup')}>Sign up</button>`
-              : `Already have an account? <button type="button" className="link-btn" onClick={() => setAuthMode('login')}>Sign in</button>`}
-          </p>
+          <div className="auth-switch">
+            {authMode === 'login' ? (
+              <>
+                <span>No account yet?</span>
+                <button type="button" className="link-btn" onClick={() => setAuthMode('signup')}>Sign up</button>
+              </>
+            ) : (
+              <>
+                <span>Already have an account?</span>
+                <button type="button" className="link-btn" onClick={() => setAuthMode('login')}>Sign in</button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     )

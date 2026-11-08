@@ -794,25 +794,26 @@ body {
   background: #2563eb;
 }
 
-.login-hint {
-  font-size: 12px;
+.auth-switch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 13px;
   color: #737373;
-  margin-top: 4px;
-  line-height: 1.4;
 }
 
-.login-hint .link-btn {
+.auth-switch .link-btn {
   background: none;
   border: 0;
   color: #3b82f6;
   cursor: pointer;
-  font-size: inherit;
+  font-size: 13px;
   font-weight: 500;
   padding: 0;
-  text-decoration: underline;
 }
 
-.login-hint .link-btn:hover {
+.auth-switch .link-btn:hover {
   color: #2563eb;
 }
 

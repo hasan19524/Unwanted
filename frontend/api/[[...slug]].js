@@ -1,69 +1,91 @@
-// Vercel serverless proxy for all backend routes
-// Reads ADMIN_KEY from server-side environment only - never exposed to browser
+// Single Vercel serverless proxy for ALL backend API routes.
+// Keeps ADMIN_KEY server-side; the browser never sees it.
+//
+// Handles every /api/* path and method, forwards JSON and multipart
+// bodies untouched, and normalizes paths regardless of whether Vercel
+// hands us the full URL or one relative to this function's mount point.
 
-const RENDER_BACKEND = process.env.RENDER_BACKEND_URL || 'https://unwanted-g96n.onrender.com';
+export const maxDuration = 60;
+
+const RENDER_BACKEND = (
+  process.env.RENDER_BACKEND_URL || 'https://unwanted-g96n.onrender.com'
+).replace(/\/+$/, '');
 
 export default async function handler(req, res) {
-  // Validate server-side secret exists
   const adminKey = process.env.ADMIN_KEY;
   if (!adminKey) {
-    return res.status(500).json({ detail: 'Server configuration error' });
+    return res
+      .status(500)
+      .json({ detail: 'Server configuration error: ADMIN_KEY not set on Vercel' });
   }
 
-  const { method } = req;
-  const { url } = req;
-
-  let path = '';
+  // Figure out the original path. req.url may be the full path
+  // (/api/proxy/session/start) or relative to this function's mount
+  // point (/proxy/session/start) depending on how Vercel routed it.
+  let pathname = '';
+  let search = '';
   try {
-    const urlObj = new URL(url, `http://${req.headers.host}`);
-    path = urlObj.pathname;
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    pathname = urlObj.pathname;
+    search = urlObj.search;
   } catch {
     return res.status(400).json({ detail: 'Invalid request URL' });
   }
 
-  // Strip /api prefix to get backend path
-  const apiPath = path.startsWith('/api/') ? path : '/api' + path;
+  // Normalize to the backend path: strip leading /api and an optional
+  // /proxy prefix, so both /api/session/start and /api/proxy/session/start
+  // land on the backend's /api/session/start.
+  let rest = pathname.replace(/^\/+/, '');
+  if (rest.startsWith('api/')) rest = rest.slice(4);
+  if (rest.startsWith('proxy/')) rest = rest.slice(6);
+  const backendPath = `/api/${rest}${search}`;
 
-  // Forward ALL API requests to Render
+  const method = (req.method || 'GET').toUpperCase();
+
   try {
-    let body = {};
-    if (method !== 'GET' && method !== 'HEAD') {
-      const rawBody = await req.text();
-      if (rawBody) {
-        try {
-          body = JSON.parse(rawBody);
-        } catch {
-          body = {};
-        }
-      }
+    // Read the raw body once (works for JSON and multipart alike).
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const rawBody = chunks.length ? Buffer.concat(chunks) : undefined;
+
+    const headers = {};
+    const hasBody = rawBody && method !== 'GET' && method !== 'HEAD';
+    if (hasBody) {
+      // Preserve the original content type (incl. multipart boundary)
+      headers['Content-Type'] =
+        req.headers['content-type'] || 'application/json';
     }
 
-    const headers = {
-      'Content-Type': 'application/json',
-    };
+    // Pass through client identity headers so the backend logs real data
+    for (const h of ['x-forwarded-for', 'x-real-ip', 'user-agent', 'referer']) {
+      if (req.headers[h]) headers[h] = req.headers[h];
+    }
 
-    // Inject admin key for mutating requests
-    if (method === 'POST' || method === 'DELETE' || method === 'PUT') {
+    // Mutating requests are authenticated server-side
+    if (['POST', 'DELETE', 'PUT', 'PATCH'].includes(method)) {
       headers['X-Admin-Key'] = adminKey;
     }
 
-    const response = await fetch(`${RENDER_BACKEND}${apiPath}`, {
+    const upstream = await fetch(`${RENDER_BACKEND}${backendPath}`, {
       method,
       headers,
-      body: method === 'GET' || method === 'HEAD' ? undefined : JSON.stringify(body),
+      body: hasBody ? rawBody : undefined,
+      signal: AbortSignal.timeout(55000),
     });
 
-    const responseBody = await response.text();
-    res.status(response.status);
-
-    const contentType = response.headers.get('content-type');
-    if (contentType) {
-      res.setHeader('Content-Type', contentType);
-    }
-
-    res.send(responseBody);
+    res.status(upstream.status);
+    const ct = upstream.headers.get('content-type');
+    if (ct) res.setHeader('Content-Type', ct);
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    return res.send(buf);
   } catch (error) {
-    console.error('Proxy error:', error.message);
-    return res.status(502).json({ detail: 'Backend unavailable' });
+    const timedOut =
+      error && (error.name === 'TimeoutError' || error.code === 'ABORT_ERR');
+    console.error('Proxy error:', backendPath, error && error.message);
+    return res.status(timedOut ? 504 : 502).json({
+      detail: timedOut
+        ? 'Backend took too long to respond (it may be waking up from sleep - retry in a minute)'
+        : 'Backend unavailable',
+    });
   }
 }

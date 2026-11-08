@@ -31,7 +31,18 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL", "")
 BREVO_SENDER_NAME = os.getenv("BREVO_SENDER_NAME", "Teacher")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-APP_PASSWORD = os.getenv("APP_PASSWORD", "")
+
+
+def hash_password(password: str) -> str:
+    import hashlib
+
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), b"classlink-salt", 100000
+    ).hex()
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    return hash_password(password) == stored_hash
 
 
 def validate_config():
@@ -44,7 +55,6 @@ def validate_config():
         "BREVO_API_KEY": BREVO_API_KEY,
         "BREVO_SENDER_EMAIL": BREVO_SENDER_EMAIL,
         "DATABASE_URL": DATABASE_URL,
-        "APP_PASSWORD": APP_PASSWORD,
     }
     for name, value in required.items():
         if not value:
@@ -67,7 +77,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Admin-Key"],
+    allow_headers=["Content-Type", "X-User-Email", "X-User-Password"],
 )
 
 
@@ -223,37 +233,67 @@ async def health():
 # ---------- Auth ----------
 
 
-class LoginRequest(BaseModel):
+class AuthRequest(BaseModel):
     email: str
     password: str
 
 
-def verify_app_password(request: Request) -> bool:
-    """Simple password check for the single teacher user."""
-    password = request.headers.get("X-App-Password")
-    if not password or password != APP_PASSWORD:
-        raise HTTPException(401, "Invalid or missing password")
-    return True
+def hash_password(password: str) -> str:
+    import hashlib
+
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), b"classlink-salt", 100000
+    ).hex()
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    return hash_password(password) == stored_hash
+
+
+def get_current_user(request: Request) -> str:
+    """Validate user email + password from headers. Returns user email."""
+    email = request.headers.get("X-User-Email")
+    password = request.headers.get("X-User-Password")
+    if not email or not password:
+        raise HTTPException(401, "Missing email or password")
+    user = db.get_user(email)
+    if not user or not verify_password(password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    return email
+
+
+@app.post("/api/auth/signup")
+async def signup(req: AuthRequest):
+    if not req.email or not req.password:
+        raise HTTPException(400, "Email and password are required")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    existing = db.get_user(req.email)
+    if existing:
+        raise HTTPException(400, "Account already exists for this email")
+    db.create_user(req.email, hash_password(req.password))
+    return {"email": req.email}
 
 
 @app.post("/api/auth/login")
-async def login(req: LoginRequest):
-    if req.password != APP_PASSWORD:
-        raise HTTPException(401, "Invalid password")
-    return {"authenticated": True}
+async def login(req: AuthRequest):
+    user = db.get_user(req.email)
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password")
+    return {"email": req.email}
 
 
 @app.get("/api/sessions")
 async def list_sessions(request: Request):
     """List all sessions for the sidebar history."""
-    verify_app_password(request)
-    sessions = db.list_sessions()
+    user_email = get_current_user(request)
+    sessions = db.list_sessions(user_email)
     return {"sessions": sessions}
 
 
 @app.post("/api/session/start")
 async def start_session(request: Request, req: StartSessionRequest):
-    verify_app_password(request)
+    user_email = get_current_user(request)
 
     if not req.teacher_name or not req.teacher_name.strip():
         raise HTTPException(400, "Teacher name is required")
@@ -280,6 +320,7 @@ async def start_session(request: Request, req: StartSessionRequest):
 
     session = db.create_session(
         teacher_name=req.teacher_name.strip(),
+        user_email=user_email,
         meet_url=req.meet_url.strip(),
         email_template=req.email_template or "Join class here: {{LINK}}",
         emails=clean_emails,
@@ -309,11 +350,13 @@ async def start_session(request: Request, req: StartSessionRequest):
 
 @app.get("/api/session/{session_id}")
 async def get_session(session_id: str, request: Request):
-    verify_app_password(request)
+    user_email = get_current_user(request)
     validate_session_id(session_id)
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
+    if session.get("user_email") != user_email:
+        raise HTTPException(403, "Not authorized to view this session")
     sharers = compute_sharers(session)
     return {
         "session_id": session["id"],
@@ -329,11 +372,13 @@ async def get_session(session_id: str, request: Request):
 
 @app.get("/api/session/{session_id}/visits")
 async def get_visits(session_id: str, request: Request):
-    verify_app_password(request)
+    user_email = get_current_user(request)
     validate_session_id(session_id)
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
+    if session.get("user_email") != user_email:
+        raise HTTPException(403, "Not authorized to view this session")
     invites_map = {inv["token"]: inv["email"] for inv in session["invites"]}
     visits = []
     for v in session["visits"]:
@@ -359,11 +404,13 @@ async def get_visits(session_id: str, request: Request):
 
 @app.delete("/api/session/{session_id}")
 async def delete_session(session_id: str, request: Request):
-    verify_app_password(request)
+    user_email = get_current_user(request)
     validate_session_id(session_id)
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
+    if session.get("user_email") != user_email:
+        raise HTTPException(403, "Not authorized to delete this session")
     success = db.delete_session(session_id)
     if not success:
         raise HTTPException(404, "Session not found")

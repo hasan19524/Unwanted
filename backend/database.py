@@ -22,10 +22,16 @@ def init_db():
     try:
         with conn.cursor() as cur:
             cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     teacher_name TEXT NOT NULL,
-                    teacher_email TEXT NOT NULL,
+                    user_email TEXT NOT NULL,
                     meet_url TEXT NOT NULL,
                     email_template TEXT,
                     created_at TEXT NOT NULL
@@ -53,15 +59,14 @@ def init_db():
                     referrer_app TEXT,
                     is_crawler INTEGER DEFAULT 0
                 );
+                CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                CREATE INDEX IF NOT EXISTS idx_sessions_user_email ON sessions(user_email);
                 CREATE INDEX IF NOT EXISTS idx_invites_session ON invites(session_id);
                 CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
                 CREATE INDEX IF NOT EXISTS idx_visits_session ON visits(session_id);
                 CREATE INDEX IF NOT EXISTS idx_visits_token ON visits(token);
-            """)
-            # Add teacher_email column to existing sessions table if missing
-            cur.execute("""
-                ALTER TABLE sessions
-                ADD COLUMN IF NOT EXISTS teacher_email TEXT NOT NULL DEFAULT '';
+                -- Backfill user_email for existing sessions if column missing
+                ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email TEXT NOT NULL DEFAULT '';
             """)
         conn.commit()
     finally:
@@ -72,11 +77,47 @@ def init_db():
 init_db()
 
 
+# ---------- Users ----------
+
+
+def create_user(email: str, password_hash: str) -> dict:
+    created_at = datetime.now(timezone.utc).isoformat()
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (email, password_hash, created_at) VALUES (%s,%s,%s) RETURNING id",
+                (email, password_hash, created_at),
+            )
+            row = cur.fetchone()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return {"id": row[0], "email": email}
+
+
+def get_user(email: str) -> Optional[dict]:
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return dict(row)
+
+
 # ---------- Session CRUD ----------
 
 
 def create_session(
     teacher_name: str,
+    user_email: str,
     meet_url: str,
     email_template: str,
     emails: list[str],
@@ -89,10 +130,11 @@ def create_session(
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sessions (id, teacher_name, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s)",
+                "INSERT INTO sessions (id, teacher_name, user_email, meet_url, email_template, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
                 (
                     session_id,
                     teacher_name,
+                    user_email,
                     meet_url,
                     email_template,
                     created_at,
@@ -118,7 +160,7 @@ def create_session(
     return {
         "id": session_id,
         "teacher_name": teacher_name,
-        "teacher_email": teacher_email,
+        "user_email": user_email,
         "meet_url": meet_url,
         "email_template": email_template,
         "invites": invites,
@@ -150,6 +192,7 @@ def get_session(session_id: str) -> Optional[dict]:
     return {
         "id": row["id"],
         "teacher_name": row["teacher_name"],
+        "user_email": row["user_email"],
         "meet_url": row["meet_url"],
         "email_template": row["email_template"],
         "created_at": row["created_at"],
@@ -158,7 +201,7 @@ def get_session(session_id: str) -> Optional[dict]:
     }
 
 
-def list_sessions() -> list[dict]:
+def list_sessions(user_email: str) -> list[dict]:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -166,7 +209,8 @@ def list_sessions() -> list[dict]:
                 "SELECT s.*, "
                 "(SELECT COUNT(*) FROM invites WHERE session_id = s.id) as student_count, "
                 "(SELECT COUNT(*) FROM visits WHERE session_id = s.id) as visit_count "
-                "FROM sessions s ORDER BY created_at DESC"
+                "FROM sessions s WHERE s.user_email = %s ORDER BY created_at DESC",
+                (user_email,),
             )
             rows = cur.fetchall()
     finally:

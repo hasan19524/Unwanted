@@ -5,12 +5,18 @@ const API = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 export default function App() {
   // ---------- Auth ----------
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return !!localStorage.getItem('auth_ok')
+    return !!localStorage.getItem('user_email')
   })
+  const [userEmail, setUserEmail] = useState(() => {
+    return localStorage.getItem('user_email') || ''
+  })
+  const [authMode, setAuthMode] = useState('login') // 'login' | 'signup'
   const [loginError, setLoginError] = useState('')
+  const [signupError, setSignupError] = useState('')
 
   const headers = () => ({
-    'X-App-Password': localStorage.getItem('app_password') || '',
+    'X-User-Email': userEmail,
+    'X-User-Password': localStorage.getItem('user_password') || '',
     'Content-Type': 'application/json',
   })
 
@@ -18,29 +24,58 @@ export default function App() {
     e.preventDefault()
     setLoginError('')
     const form = e.target.elements
+    const email = form.email.value.trim()
     const password = form.password.value
     try {
       const res = await fetch(`${API}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       })
       if (res.ok) {
-        localStorage.setItem('auth_ok', '1')
-        localStorage.setItem('app_password', password)
+        localStorage.setItem('user_email', email)
+        localStorage.setItem('user_password', password)
+        setUserEmail(email)
         setIsAuthenticated(true)
       } else {
         const d = await res.json()
-        setLoginError(d.detail || 'Invalid password')
+        setLoginError(d.detail || 'Invalid email or password')
       }
     } catch (err) {
       setLoginError('Network error: ' + err.message)
     }
   }
 
+  const handleSignup = async (e) => {
+    e.preventDefault()
+    setSignupError('')
+    const form = e.target.elements
+    const email = form.email.value.trim()
+    const password = form.password.value
+    try {
+      const res = await fetch(`${API}/api/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      if (res.ok) {
+        localStorage.setItem('user_email', email)
+        localStorage.setItem('user_password', password)
+        setUserEmail(email)
+        setIsAuthenticated(true)
+      } else {
+        const d = await res.json()
+        setSignupError(d.detail || 'Signup failed')
+      }
+    } catch (err) {
+      setSignupError('Network error: ' + err.message)
+    }
+  }
+
   const handleLogout = () => {
-    localStorage.removeItem('auth_ok')
-    localStorage.removeItem('app_password')
+    localStorage.removeItem('user_email')
+    localStorage.removeItem('user_password')
+    setUserEmail('')
     setIsAuthenticated(false)
     setSessions([])
     setSessionDetail(null)
@@ -55,16 +90,27 @@ export default function App() {
       <div className="login-page">
         <div className="login-card">
           <h1>Class Link Tracker</h1>
-          <p>Enter the app password</p>
-          {loginError && <div className="alert alert-error">{loginError}</div>}
-          <form onSubmit={handleLogin}>
+          <p>{authMode === 'login' ? 'Sign in to your account' : 'Create your account'}</p>
+          {authMode === 'login' && loginError && <div className="alert alert-error">{loginError}</div>}
+          {authMode === 'signup' && signupError && <div className="alert alert-error">{signupError}</div>}
+          <form onSubmit={authMode === 'login' ? handleLogin : handleSignup}>
+            <div className="form-group">
+              <label>Email address</label>
+              <input type="email" name="email" required placeholder="you@gmail.com" />
+            </div>
             <div className="form-group">
               <label>Password</label>
               <input type="password" name="password" required />
             </div>
-            <button type="submit" className="btn btn-primary">Sign in</button>
+            <button type="submit" className="btn btn-primary">
+              {authMode === 'login' ? 'Sign in' : 'Create account'}
+            </button>
           </form>
-          <p className="login-hint">The password is set in the APP_PASSWORD environment variable on Render.</p>
+          <p className="login-hint">
+            {authMode === 'login'
+              ? `Don't have an account? <button type="button" className="link-btn" onClick={() => setAuthMode('signup')}>Sign up</button>`
+              : `Already have an account? <button type="button" className="link-btn" onClick={() => setAuthMode('login')}>Sign in</button>`}
+          </p>
         </div>
       </div>
     )
@@ -111,7 +157,7 @@ export default function App() {
         handleLogout()
       }
     } catch (e) { /* silent */ }
-  }, [teacherEmail])
+  }, [userEmail])
 
   useEffect(() => {
     fetchSessions()
@@ -223,7 +269,7 @@ export default function App() {
         setSharers(vd.sharers || [])
       }
     } catch (e) { /* silent */ }
-  }, [teacherEmail])
+  }, [userEmail])
 
   useEffect(() => {
     if (activeSessionId && view === 'detail') {
@@ -332,7 +378,7 @@ export default function App() {
             <span className="sidebar-brand-text">ClassLink</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.85rem', color: '#6b6b6b' }}>
-            {teacherEmail}
+            {userEmail}
           </div>
           <button className="btn btn-small" onClick={handleLogout}>Logout</button>
           <button className="btn btn-small" onClick={newSession}>+ New</button>

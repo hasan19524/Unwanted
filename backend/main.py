@@ -22,7 +22,6 @@ from mailer import send_bulk
 from tracker import parse_user_agent, is_crawler, detect_referrer_app, geo_lookup
 
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
-ADMIN_KEY = os.getenv("ADMIN_KEY", "")
 CORS_ORIGINS = [
     o.strip()
     for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
@@ -55,7 +54,6 @@ def validate_config():
     required = {
         "APP_BASE_URL": APP_BASE_URL,
         "CORS_ORIGINS": CORS_ORIGINS,
-        "ADMIN_KEY": ADMIN_KEY,
         "BREVO_API_KEY": BREVO_API_KEY,
         "BREVO_SENDER_EMAIL": BREVO_SENDER_EMAIL,
         "DATABASE_URL": DATABASE_URL,
@@ -109,19 +107,6 @@ async def security_and_rate_limit(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     return response
-
-
-# ---------- Dependency ----------
-
-
-def verify_admin_key(request: Request):
-    """Verify admin key for destructive operations."""
-    if not ADMIN_KEY:
-        return True
-    key = request.headers.get("X-Admin-Key") or request.query_params.get("admin_key")
-    if key != ADMIN_KEY:
-        raise HTTPException(403, "Invalid or missing admin key")
-    return True
 
 
 # ---------- Models ----------

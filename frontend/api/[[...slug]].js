@@ -1,5 +1,4 @@
 // Single Vercel serverless proxy for ALL backend API routes.
-// Keeps ADMIN_KEY server-side; the browser never sees it.
 //
 // Handles every /api/* path and method, forwards JSON and multipart
 // bodies untouched, and normalizes paths regardless of whether Vercel
@@ -12,13 +11,6 @@ const RENDER_BACKEND = (
 ).replace(/\/+$/, '');
 
 export default async function handler(req, res) {
-  const adminKey = process.env.ADMIN_KEY;
-  if (!adminKey) {
-    return res
-      .status(500)
-      .json({ detail: 'Server configuration error: ADMIN_KEY not set on Vercel' });
-  }
-
   // Figure out the original path. req.url may be the full path
   // (/api/proxy/session/start) or relative to this function's mount
   // point (/proxy/session/start) depending on how Vercel routed it.
@@ -59,11 +51,6 @@ export default async function handler(req, res) {
     // Pass through client identity headers so the backend logs real data
     for (const h of ['x-forwarded-for', 'x-real-ip', 'user-agent', 'referer']) {
       if (req.headers[h]) headers[h] = req.headers[h];
-    }
-
-    // Mutating requests are authenticated server-side
-    if (['POST', 'DELETE', 'PUT', 'PATCH'].includes(method)) {
-      headers['X-Admin-Key'] = adminKey;
     }
 
     const upstream = await fetch(`${RENDER_BACKEND}${backendPath}`, {

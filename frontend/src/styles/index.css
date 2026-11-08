@@ -701,4 +701,113 @@ body {
   .info-grid { grid-template-columns: 1fr; }
   .main-content { padding: 12px; padding-top: 60px; }
 }
+
+/* ---------- Login page ---------- */
+
+.login-page {
+  min-height: 100vh;
+  width: 100%;
+  background: #0b0b0b;
+  color: #f5f5f7;
+  padding: 40px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  max-width: 400px;
+  width: 100%;
+  background: #141414;
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.login-card h1 {
+  font-size: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0;
+  color: #f5f5f7;
+}
+
+.login-card p {
+  font-size: 15px;
+  line-height: 1.5;
+  color: #a1a1aa;
+  margin: 0;
+}
+
+.login-card .form-group {
+  margin: 0;
+}
+
+.login-card label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+  color: #a1a1aa;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.login-card input {
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: #1f1f1f;
+  color: #f5f5f7;
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 400;
+}
+
+.login-card input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #3b82f6;
+}
+
+.login-card input::placeholder {
+  color: #525252;
+}
+
+.login-card .btn-primary {
+  width: 100%;
+  padding: 14px;
+  background: #3b82f6;
+  color: #ffffff;
+  border: 0;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.login-card .btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.login-hint {
+  font-size: 12px;
+  color: #737373;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.alert-error {
+  background: #451a1a;
+  color: #fca5a5;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  margin-bottom: 0;
+}
 EOF

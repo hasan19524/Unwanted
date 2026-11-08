@@ -64,16 +64,16 @@ export default function App() {
           {loginError && <div className="alert alert-error">{loginError}</div>}
           <form onSubmit={handleLogin}>
             <div className="form-group">
-              <label>Teacher Email</label>
+              <label>Teacher email</label>
               <input type="email" name="email" required placeholder="you@gmail.com" />
             </div>
             <div className="form-group">
               <label>Password</label>
               <input type="password" name="password" required />
             </div>
-            <button type="submit" className="btn btn-primary btn-large">Login</button>
+            <button type="submit" className="btn btn-primary">Sign in</button>
           </form>
-          <p className="login-hint">Set TEACHER_EMAIL and TEACHER_PASSWORD_HASH on Render to configure.</p>
+          <p className="login-hint">Set TEACHER_EMAIL and TEACHER_PASSWORD_HASH on Render to configure access.</p>
         </div>
       </div>
     )

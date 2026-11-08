@@ -86,7 +86,12 @@ app.add_middleware(
 
 @app.middleware("http")
 async def security_and_rate_limit(request: Request, call_next):
-    client_ip = request.client.host if request.client else "unknown"
+    # All traffic reaches Render through a proxy chain (Vercel serverless for
+    # /api/*, Render's own edge for /go/*), so the socket peer IP is shared by
+    # every client. Key the rate limit on the forwarded client IP (set by
+    # Render's edge / forwarded by our proxy) so each real user gets their own
+    # bucket; fall back to the socket peer when no forwarded header exists.
+    client_ip = get_client_ip(request)
 
     # Rate limiting
     now = time.time()
@@ -119,7 +124,9 @@ class StartSessionRequest(BaseModel):
 # ---------- Helpers ----------
 
 rate_limit_store: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT_REQUESTS = 20
+# Dashboard polls 2 requests every 3s (~40/min) plus user actions; 60/min
+# gives legitimate usage headroom while still bounding abuse per client IP.
+RATE_LIMIT_REQUESTS = 60
 RATE_LIMIT_WINDOW = 60
 
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")

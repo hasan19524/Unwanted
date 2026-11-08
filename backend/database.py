@@ -27,21 +27,26 @@ def init_db():
                     email TEXT NOT NULL UNIQUE,
                     password_hash TEXT NOT NULL,
                     created_at TEXT NOT NULL
-                );
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id TEXT PRIMARY KEY,
                     teacher_name TEXT NOT NULL,
-                    user_email TEXT NOT NULL,
                     meet_url TEXT NOT NULL,
                     email_template TEXT,
                     created_at TEXT NOT NULL
-                );
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS invites (
                     id SERIAL PRIMARY KEY,
                     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
                     email TEXT NOT NULL,
                     token TEXT NOT NULL UNIQUE
-                );
+                )
+            """)
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS visits (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -58,16 +63,26 @@ def init_db():
                     referrer TEXT,
                     referrer_app TEXT,
                     is_crawler INTEGER DEFAULT 0
-                );
-                CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-                CREATE INDEX IF NOT EXISTS idx_sessions_user_email ON sessions(user_email);
-                CREATE INDEX IF NOT EXISTS idx_invites_session ON invites(session_id);
-                CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token);
-                CREATE INDEX IF NOT EXISTS idx_visits_session ON visits(session_id);
-                CREATE INDEX IF NOT EXISTS idx_visits_token ON visits(token);
-                -- Backfill user_email for existing sessions if column missing
-                ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email TEXT NOT NULL DEFAULT '';
+                )
             """)
+            # Add user_email column if missing (for existing databases)
+            cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email TEXT")
+            cur.execute("UPDATE sessions SET user_email = '' WHERE user_email IS NULL")
+            cur.execute("ALTER TABLE sessions ALTER COLUMN user_email SET NOT NULL")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_user_email ON sessions(user_email)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_invites_session ON invites(session_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_visits_session ON visits(session_id)"
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_visits_token ON visits(token)")
         conn.commit()
     finally:
         conn.close()

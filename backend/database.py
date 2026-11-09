@@ -73,6 +73,8 @@ def init_db():
             # teacher-login design: it is NOT NULL but no longer written,
             # so every INSERT fails with NotNullViolation.
             cur.execute("ALTER TABLE sessions DROP COLUMN IF EXISTS teacher_email")
+            # Cookie-based visitor identity for sharer detection
+            cur.execute("ALTER TABLE visits ADD COLUMN IF NOT EXISTS visitor_id TEXT")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user_email ON sessions(user_email)"
@@ -270,8 +272,8 @@ def add_visit(session_id: str, visit: dict):
         with conn.cursor() as cur:
             cur.execute(
                 """INSERT INTO visits (id, session_id, token, timestamp, ip, city, country, region,
-                   device, os, browser, user_agent, referrer, referrer_app, is_crawler)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                   device, os, browser, user_agent, referrer, referrer_app, is_crawler, visitor_id)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     visit["id"],
                     session_id,
@@ -288,6 +290,7 @@ def add_visit(session_id: str, visit: dict):
                     visit["referrer"],
                     visit["referrer_app"],
                     1 if visit["is_crawler"] else 0,
+                    visit.get("visitor_id"),
                 ),
             )
         conn.commit()

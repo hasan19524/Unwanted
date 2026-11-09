@@ -164,12 +164,18 @@ def validate_email_list(emails: list[str]) -> list[str]:
 
 
 def compute_sharers(session: dict) -> list:
-    """Compute list of students whose links show multiple device/IP patterns.
+    """Compute students whose links appear to be shared.
 
-    Does NOT assume the first visitor is the owner. Excludes crawler visits
-    from sharing calculations. Flags tokens with visits from multiple
-    (ip, device) combinations as potentially shared — but does not claim
-    that IP/device differences prove someone's identity.
+    Identity model: a cookie-based visitor_id (set on the tracking
+    redirect) identifies the same browser across visits — even from a
+    different IP or network. For visits without one (older rows, blocked
+    cookies) fall back to (ip, device). The first distinct visitor of a
+    token is the presumed owner; every additional distinct visitor is
+    reported as an outsider. Repeat visits from the same visitor are
+    never outsiders. Crawler/link-preview visits are excluded.
+
+    Does NOT assume the first visitor is provably the owner — identity
+    here means "same browser", nothing stronger is knowable.
     """
     invites_map = {inv["token"]: inv["email"] for inv in session["invites"]}
     by_token: dict = {}
@@ -180,45 +186,53 @@ def compute_sharers(session: dict) -> list:
             continue
         by_token.setdefault(v["token"], []).append(v)
 
+    def identity(v: dict):
+        vid = v.get("visitor_id")
+        if vid:
+            return ("vid", vid)
+        return ("dev", v["ip"], v["device"])
+
     sharers = []
     for token, visits in by_token.items():
-        # Group by (ip, device) combo
-        combos: dict = {}
+        # Group visits by visitor identity, preserving first-seen order
+        groups: dict = {}
+        order: list = []
         for v in visits:
-            combo_key = (v["ip"], v["device"])
-            combos.setdefault(combo_key, []).append(v)
+            key = identity(v)
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(v)
 
-        if len(combos) <= 1:
+        if len(groups) <= 1:
             continue
 
-        # Multiple combos detected — potential additional visitors
-        all_combo_keys = list(combos.keys())
-        additional_visits = []
-        for combo_key in all_combo_keys[1:]:
-            additional_visits.extend(combos[combo_key])
+        # First distinct visitor = presumed owner; the rest = outsiders
+        outsiders = []
+        for key in order[1:]:
+            outsiders.extend(groups[key])
 
-        if additional_visits:
-            sharers.append(
-                {
-                    "student_email": invites_map.get(token, "Unknown"),
-                    "token": token,
-                    "outsider_count": len(additional_visits),
-                    "unique_combos": len(all_combo_keys),
-                    "outsiders": [
-                        {
-                            "ip": v["ip"],
-                            "city": v["city"],
-                            "country": v["country"],
-                            "device": v["device"],
-                            "os": v["os"],
-                            "referrer_app": v["referrer_app"],
-                            "time": v["timestamp"],
-                            "is_crawler": bool(v.get("is_crawler", False)),
-                        }
-                        for v in additional_visits
-                    ],
-                }
-            )
+        sharers.append(
+            {
+                "student_email": invites_map.get(token, "Unknown"),
+                "token": token,
+                "outsider_count": len(outsiders),
+                "unique_visitors": len(groups),
+                "outsiders": [
+                    {
+                        "ip": v["ip"],
+                        "city": v["city"],
+                        "country": v["country"],
+                        "device": v["device"],
+                        "os": v["os"],
+                        "referrer_app": v["referrer_app"],
+                        "time": v["timestamp"],
+                        "is_crawler": bool(v.get("is_crawler", False)),
+                    }
+                    for v in outsiders
+                ],
+            }
+        )
 
     return sharers
 
@@ -458,10 +472,31 @@ async def track_and_redirect(token: str, request: Request):
         "is_crawler": crawler,
     }
 
+    # Cookie-based visitor identity: the same browser clicking this link
+    # again is the same person (even from a different IP/network); a fresh
+    # browser is a different visitor. Bots get no cookie.
+    visitor_id = request.cookies.get("visitor_id")
+    if not visitor_id:
+        visitor_id = uuid.uuid4().hex
+        new_visitor = True
+    else:
+        new_visitor = False
+    visit["visitor_id"] = visitor_id
+
     db.add_visit(session_id, visit)
 
     meet_url = session["meet_url"]
-    return RedirectResponse(url=meet_url, status_code=302)
+    resp = RedirectResponse(url=meet_url, status_code=302)
+    if new_visitor and not crawler:
+        resp.set_cookie(
+            "visitor_id",
+            visitor_id,
+            max_age=365 * 24 * 60 * 60,
+            httponly=True,
+            samesite="lax",
+            secure=APP_BASE_URL.startswith("https"),
+        )
+    return resp
 
 
 @app.post("/api/upload-emails")

@@ -69,6 +69,10 @@ def init_db():
             cur.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_email TEXT")
             cur.execute("UPDATE sessions SET user_email = '' WHERE user_email IS NULL")
             cur.execute("ALTER TABLE sessions ALTER COLUMN user_email SET NOT NULL")
+            # Remove the legacy teacher_email column from the abandoned
+            # teacher-login design: it is NOT NULL but no longer written,
+            # so every INSERT fails with NotNullViolation.
+            cur.execute("ALTER TABLE sessions DROP COLUMN IF EXISTS teacher_email")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_user_email ON sessions(user_email)"
